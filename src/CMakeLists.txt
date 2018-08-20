@@ -55,11 +55,26 @@ add_library(PaymentGate ${PaymentGate})
 add_library(JsonRpcServer ${JsonRpcServer})
 add_library(Mnemonics ${Mnemonics})
 
+if(MSVC)
+  set(DAEMON_SOURCES_OS
+    BinaryInfo/nutucoind.rc
+  )
+  set(SIMPLE_WALLET_SOURCES_OS
+    BinaryInfo/simplewallet.rc
+  )
+  set(MINER_SOURCES_OS
+    BinaryInfo/miner.rc
+  )
+  set(PG_SOURCES_OS
+    BinaryInfo/walletd.rc
+  )
+endif()
+
 add_executable(ConnectivityTool ${ConnectivityTool})
-add_executable(Daemon ${Daemon})
-add_executable(SimpleWallet ${SimpleWallet})
-add_executable(PaymentGateService ${PaymentGateService})
-add_executable(Miner ${Miner})
+add_executable(Daemon ${Daemon} ${DAEMON_SOURCES_OS})
+add_executable(SimpleWallet ${SimpleWallet} ${SIMPLE_WALLET_SOURCES_OS})
+add_executable(PaymentGateService ${PaymentGateService} ${PG_SOURCES_OS})
+add_executable(Miner ${Miner} ${MINER_SOURCES_OS})
 
 if (MSVC)
   target_link_libraries(System ws2_32)

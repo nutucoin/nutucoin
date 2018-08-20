@@ -10,6 +10,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 string(TOLOWER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_LOWER)
 
+set(DO_TESTS ON CACHE STRING "Spend time making tests? Defaults to ON")
+
 # ARCH defines the target architecture, either by an explicit identifier or
 # one of the following two keywords. By default, ARCH a value of 'native':
 # target arch = host arch, binary is not portable. When ARCH is set to the
@@ -84,7 +86,7 @@ option(BOOST_IGNORE_SYSTEM_PATHS "Ignore boost system paths for local boost inst
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # set(CMAKE_CONFIGURATION_TYPES "Debug;Release")
 set(CMAKE_CONFIGURATION_TYPES Debug RelWithDebInfo Release CACHE TYPE INTERNAL)
-set(CMAKE_SKIP_INSTALL_RULES ON)
+set(CMAKE_SKIP_INSTALL_RULES OFF)
 set(CMAKE_SKIP_PACKAGE_ALL_DEPENDENCY ON)
 set(CMAKE_SUPPRESS_REGENERATION ON)
 # enable_testing()
