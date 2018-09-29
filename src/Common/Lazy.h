@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Nutucoin developers
+// Copyright (c) 2017-2018, Karbo developers
 // 
 // All rights reserved.
 // 

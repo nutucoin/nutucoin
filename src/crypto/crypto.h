@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers, The Nutucoin developers
+// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers, The Karbowanec developers
 //
 // This file is part of Bytecoin.
 //
@@ -273,3 +273,4 @@ CRYPTO_MAKE_HASHABLE(PublicKey)
 CRYPTO_MAKE_HASHABLE(KeyImage)
 CRYPTO_MAKE_COMPARABLE(Signature)
 CRYPTO_MAKE_COMPARABLE(SecretKey)
+

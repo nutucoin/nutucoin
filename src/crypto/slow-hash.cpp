@@ -1,4 +1,4 @@
-// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2012-2017, The CryptoNote developers, The Bytecoin developers
 //
 // This file is part of Bytecoin.
 //
@@ -19,7 +19,10 @@
 
 #include "hash.h"
 
-#ifdef _WIN32
+#if defined(WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #else
 #include <sys/mman.h>
@@ -33,7 +36,7 @@ namespace Crypto {
     MAP_SIZE = SLOW_HASH_CONTEXT_SIZE + ((-SLOW_HASH_CONTEXT_SIZE) & 0xfff)
   };
 
-#ifdef _WIN32
+#if defined(WIN32)
 
   cn_context::cn_context() {
     data = VirtualAlloc(nullptr, MAP_SIZE, MEM_COMMIT, PAGE_READWRITE);
@@ -63,9 +66,9 @@ namespace Crypto {
   }
 
   cn_context::~cn_context() {
-    //if (munmap(data, MAP_SIZE) != 0) {
-    //  throw bad_alloc();
-    //}
+    if (munmap(data, MAP_SIZE) != 0) {
+      std::terminate();
+    }
   }
 
 #endif
