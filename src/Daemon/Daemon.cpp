@@ -232,25 +232,30 @@ int main(int argc, char* argv[])
     CryptoNote::core ccore(currency, nullptr, logManager, command_line::get_arg(vm, arg_enable_blockchain_indexes));
 
     CryptoNote::Checkpoints checkpoints(logManager);
-    for (const auto& cp : CryptoNote::CHECKPOINTS) {
-      checkpoints.add_checkpoint(cp.height, cp.blockId);
-    }
 
 #ifndef __ANDROID__
-	checkpoints.load_checkpoints_from_dns();
+    //TODO
+	//checkpoints.load_checkpoints_from_dns();
 #endif
 
 	bool use_checkpoints = !command_line::get_arg(vm, arg_load_checkpoints).empty();
 
-	if (use_checkpoints && !testnet_mode) {
+    if (use_checkpoints && !testnet_mode) {
       logger(INFO) << "Loading Checkpoints from file...";
       std::string checkpoints_file = command_line::get_arg(vm, arg_load_checkpoints);
-      bool results = checkpoints.load_checkpoints_from_file(checkpoints_file);
-      if (!results) {
-        throw std::runtime_error("Failed to load checkpoints");
+      if (checkpoints_file == "default") {
+        for (const auto& cp : CryptoNote::CHECKPOINTS) {
+          checkpoints.add_checkpoint(cp.height, cp.blockId);
+        }
+        logger(INFO) << "Loaded " << CryptoNote::CHECKPOINTS.size() << " default checkpoints";
+      } else {
+          bool results = checkpoints.load_checkpoints_from_file(checkpoints_file);
+		  if (!results) {
+			throw std::runtime_error("Failed to load checkpoints");
+		  }
       }
     }
-
+	
     if (!testnet_mode) {
       ccore.set_checkpoints(std::move(checkpoints));
     }
