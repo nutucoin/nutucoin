@@ -1,7 +1,7 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
 // Copyright (c) 2014-2018, The Monero project
 // Copyright (c) 2014-2018, The Forknote developers
-// Copyright (c) 2016-2018, The Karbowanec developers
+// Copyright (c) 2016-2018, The Nutucoin developers
 //
 // This file is part of Bytecoin.
 //
@@ -604,7 +604,7 @@ namespace CryptoNote
 
     m_stopEvent.wait();
 
-    logger(INFO) << "Stopping NodeServer and its " << m_connections.size() << " connections...";
+    logger(INFO) << "Stopping NodeServer and it's" << m_connections.size() << " connections...";
     m_workingContextGroup.interrupt();
     m_workingContextGroup.wait();
 
@@ -1034,7 +1034,7 @@ namespace CryptoNote
     {
       if(be.last_seen > uint64_t(local_time))
       {
-        logger(DEBUGGING) << "FOUND FUTURE peerlist for entry " << be.adr << " last_seen: " << be.last_seen << ", local_time (on remote node):" << local_time;
+        logger(ERROR) << "FOUND FUTURE peerlist for entry " << be.adr << " last_seen: " << be.last_seen << ", local_time(on remote node):" << local_time;
         return false;
       }
       be.last_seen += delta;

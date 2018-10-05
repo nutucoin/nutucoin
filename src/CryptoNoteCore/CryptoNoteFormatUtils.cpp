@@ -1,5 +1,4 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2018, Karbo developers
 //
 // This file is part of Bytecoin.
 //
@@ -30,7 +29,6 @@
 #include "CryptoNoteSerialization.h"
 #include "TransactionExtra.h"
 #include "CryptoNoteTools.h"
-#include "Currency.h"
 
 #include "CryptoNoteConfig.h"
 
@@ -122,7 +120,6 @@ bool constructTransaction(
   std::vector<uint8_t> extra,
   Transaction& tx,
   uint64_t unlock_time,
-  Crypto::SecretKey &tx_key,
   Logging::ILogger& log) {
   LoggerRef logger(log, "construct_tx");
 
@@ -136,8 +133,6 @@ bool constructTransaction(
   tx.extra = extra;
   KeyPair txkey = generateKeyPair();
   addTransactionPublicKeyToExtra(tx.extra, txkey.publicKey);
-
-  tx_key = txkey.secretKey;
 
   struct input_generation_context_data {
     KeyPair in_ephemeral;
@@ -293,10 +288,8 @@ bool check_inputs_types_supported(const TransactionPrefix& tx) {
 }
 
 bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
-  std::unordered_set<PublicKey> keys_seen;
   for (const TransactionOutput& out : tx.outputs) {
     if (out.target.type() == typeid(KeyOutput)) {
- 
       if (out.amount == 0) {
         if (error) {
           *error = "Zero amount ouput";
@@ -310,15 +303,6 @@ bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
         }
         return false;
       }
-
-      if (keys_seen.find(boost::get<KeyOutput>(out.target).key) != keys_seen.end()) {
-        if (error) {
-          *error = "The same output target is present more than once";
-        }
-        return false;
-      }
-      keys_seen.insert(boost::get<KeyOutput>(out.target).key);
-
     } else if (out.target.type() == typeid(MultisignatureOutput)) {
       const MultisignatureOutput& multisignatureOutput = ::boost::get<MultisignatureOutput>(out.target);
       if (multisignatureOutput.requiredSignatureCount > multisignatureOutput.keys.size()) {
@@ -334,15 +318,6 @@ bool check_outs_valid(const TransactionPrefix& tx, std::string* error) {
           }
           return false;
         }
-
-        if (keys_seen.find(key) != keys_seen.end()) {
-          if (error) {
-            *error = "The same multisignature output target is present more than once";
-          }
-          return false;
-        }
-		keys_seen.insert(key);
-
       }
     } else {
       if (error) {
@@ -489,8 +464,7 @@ bool get_block_hash(const Block& b, Hash& res) {
     return false;
   }
 
-  // The header of block version 1 differs from headers of blocks starting from v.2
-  if (BLOCK_MAJOR_VERSION_2 == b.majorVersion || BLOCK_MAJOR_VERSION_3 == b.majorVersion) {
+  if (BLOCK_MAJOR_VERSION_2 <= b.majorVersion) {
     BinaryArray parent_blob;
     auto serializer = makeParentBlockSerializer(b, true, false);
     if (!toBinaryArray(serializer, parent_blob))
@@ -523,19 +497,17 @@ bool get_block_longhash(cn_context &context, const Block& b, Hash& res) {
     if (!get_block_hashing_blob(b, bd)) {
       return false;
     }
-    cn_slow_hash_v6(context, bd.data(), bd.size(), res);
-  } else if (b.majorVersion == BLOCK_MAJOR_VERSION_2 || b.majorVersion == BLOCK_MAJOR_VERSION_3) {
-    if (!get_block_hashing_blob(b, bd)) {
+  } else if (b.majorVersion >= BLOCK_MAJOR_VERSION_2) {
+    if (!get_parent_block_hashing_blob(b, bd)) {
       return false;
     }
-	cn_lite_slow_hash_v1(context, bd.data(), bd.size(), res);
-  } else if (b.majorVersion == BLOCK_MAJOR_VERSION_4) {
-    if (!get_block_hashing_blob(b, bd)) {
-      return false;
-    }
-	cn_lite_slow_hash_v1(context, bd.data(), bd.size(), res);
   } else {
     return false;
+  }
+  if (b.majorVersion == BLOCK_MAJOR_VERSION_1) {
+	  cn_slow_hash_v6(context, bd.data(), bd.size(), res);
+  } else if (b.majorVersion >= BLOCK_MAJOR_VERSION_2) {
+	  cn_lite_slow_hash_v1(context, bd.data(), bd.size(), res);
   }
   return true;
 }
@@ -579,14 +551,4 @@ Hash get_tx_tree_hash(const Block& b) {
   return get_tx_tree_hash(txs_ids);
 }
 
-bool is_valid_decomposed_amount(uint64_t amount) {
-  auto it = std::lower_bound(Currency::PRETTY_AMOUNTS.begin(), Currency::PRETTY_AMOUNTS.end(), amount);
-  if (it == Currency::PRETTY_AMOUNTS.end() || amount != *it) {
-	  return false;
-  }
-  return true;
 }
-
-}
-
-

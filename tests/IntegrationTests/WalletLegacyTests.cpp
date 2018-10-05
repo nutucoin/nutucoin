@@ -20,11 +20,9 @@
 #include <System/Timer.h>
 #include "WalletLegacy/WalletLegacy.h"
 #include "WalletLegacyObserver.h"
-#include <Logging/LoggerRef.h>
 
 using namespace Tests;
 using namespace CryptoNote;
-using namespace Logging;
 
 class WalletLegacyTests : public BaseTest {
 
@@ -43,8 +41,7 @@ TEST_F(WalletLegacyTests, checkNetworkShutdown) {
 
   {
     auto node = daemon.makeINode();
-	
-    WalletLegacy wallet(currency, *node, logger);
+    WalletLegacy wallet(currency, *node);
     wallet.initAndGenerate("pass");
 
     WalletLegacyObserver observer;

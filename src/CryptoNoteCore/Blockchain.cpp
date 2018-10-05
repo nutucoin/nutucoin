@@ -1,6 +1,5 @@
-// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers, The Monero developers
-// Copyright (c) 2018, Ryo Currency Project
-// Copyright (c) 2016-2018, The Karbo developers
+// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2016, The Nutucoin developers
 //
 // This file is part of Bytecoin.
 //
@@ -20,12 +19,9 @@
 #include "Blockchain.h"
 
 #include <algorithm>
-#include <numeric>
 #include <cstdio>
-#include <cmath>
 #include <boost/foreach.hpp>
 #include "Common/Math.h"
-#include "Common/int-util.h"
 #include "Common/ShuffleGenerator.h"
 #include "Common/StdInputStream.h"
 #include "Common/StdOutputStream.h"
@@ -326,7 +322,6 @@ m_current_block_cumul_sz_limit(0),
 m_is_in_checkpoint_zone(false),
 m_upgradeDetectorV2(currency, m_blocks, BLOCK_MAJOR_VERSION_2, logger),
 m_upgradeDetectorV3(currency, m_blocks, BLOCK_MAJOR_VERSION_3, logger),
-m_upgradeDetectorV4(currency, m_blocks, BLOCK_MAJOR_VERSION_4, logger),
 m_checkpoints(logger),
 m_paymentIdIndex(blockchainIndexesEnabled),
 m_timestampIndex(blockchainIndexesEnabled),
@@ -456,7 +451,7 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
       << "Blockchain not loaded, generating genesis block.";
     block_verification_context bvc = boost::value_initialized<block_verification_context>();
     pushBlock(m_currency.genesisBlock(), bvc);
-    if (bvc.m_verification_failed) {
+    if (bvc.m_verifivation_failed) {
       logger(ERROR, BRIGHT_RED) << "Failed to add genesis block to blockchain";
       return false;
     }
@@ -496,15 +491,9 @@ bool Blockchain::init(const std::string& config_folder, bool load_existing) {
       " expected=" << static_cast<int>(m_upgradeDetectorV3.targetVersion()) << ". Rollback blockchain to height=" << upgradeHeight;
     rollbackBlockchainTo(upgradeHeight);
     reinitUpgradeDetectors = true;
-  } else if (!checkUpgradeHeight(m_upgradeDetectorV4)) {
-    uint32_t upgradeHeight = m_upgradeDetectorV4.upgradeHeight();
-    logger(WARNING, BRIGHT_YELLOW) << "Invalid block version at " << upgradeHeight + 1 << ": real=" << static_cast<int>(m_blocks[upgradeHeight + 1].bl.majorVersion) <<
-      " expected=" << static_cast<int>(m_upgradeDetectorV4.targetVersion()) << ". Rollback blockchain to height=" << upgradeHeight;
-    rollbackBlockchainTo(upgradeHeight);
-    reinitUpgradeDetectors = true;
   }
 
-  if (reinitUpgradeDetectors && (!m_upgradeDetectorV2.init() || !m_upgradeDetectorV3.init() || !m_upgradeDetectorV4.init())) {
+  if (reinitUpgradeDetectors && (!m_upgradeDetectorV2.init() || !m_upgradeDetectorV3.init())) {
     logger(ERROR, BRIGHT_RED) << "Failed to initialize upgrade detector";
     return false;
   }
@@ -609,7 +598,7 @@ bool Blockchain::resetAndSetGenesisBlock(const Block& b) {
 
   block_verification_context bvc = boost::value_initialized<block_verification_context>();
   addNewBlock(b, bvc);
-  return bvc.m_added_to_main_chain && !bvc.m_verification_failed;
+  return bvc.m_added_to_main_chain && !bvc.m_verifivation_failed;
 }
 
 Crypto::Hash Blockchain::getTailId(uint32_t& height) {
@@ -717,64 +706,9 @@ difficulty_type Blockchain::getDifficultyForNextBlock() {
   return m_currency.nextDifficulty(BlockMajorVersion, timestamps, cumulative_difficulties);
 }
 
-difficulty_type Blockchain::getAvgDifficultyForHeight(uint32_t height, size_t window) {
-  std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
-  size_t offset;
-  offset = height - std::min(height, std::min<uint32_t>(m_blocks.size(), window));
-  if (offset == 0) {
-    ++offset;
-  }
-  difficulty_type cumulDiffForPeriod = m_blocks[height].cumulative_difficulty - m_blocks[offset].cumulative_difficulty;
-  return cumulDiffForPeriod / std::min<uint32_t>(m_blocks.size(), window);
-}
-
 uint64_t Blockchain::getBlockTimestamp(uint32_t height) {
   assert(height < m_blocks.size());
   return m_blocks[height].bl.timestamp;
-}
-
-uint64_t Blockchain::getMinimalFee(uint32_t height) {
-	std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
-
-	if (height > m_blocks.size() - 1) {
-		height = m_blocks.size() - 1;
-	}
-	if (height < 3) {
-		height = 3;
-	}
-	size_t window = std::min(height, std::min<uint32_t>(m_blocks.size(), m_currency.expectedNumberOfBlocksPerDay()));
-	if (window == 0) {
-		++window;
-	}
-	size_t offset = height - window;
-	if (offset == 0) {
-		++offset;
-	}
-
-	// calculate average difficulty for ~last month
-	uint64_t avgDifficultyCurrent = getAvgDifficultyForHeight(height, window * 7 * 4);
-	
-	// historical reference moving average difficulty
-	uint64_t avgDifficultyHistorical = m_blocks[height].cumulative_difficulty / height;
-
-	/*
-	* Total reward with transaction fees is used as the level of usage metric
-	* to take into account transaction volume and cost of space in blockchain.
-	*/
-
-	// calculate average reward for ~last day
-	std::vector<uint64_t> rewards;
-	rewards.reserve(window);
-	for (; offset < height; offset++) {
-		rewards.push_back(get_outs_money_amount(m_blocks[offset].bl.baseTransaction));
-	}
-	uint64_t avgRewardCurrent = std::accumulate(rewards.begin(), rewards.end(), 0ULL) / rewards.size();
-	rewards.shrink_to_fit();
-
-	// historical reference moving average reward
-	uint64_t avgRewardHistorical = m_blocks[height].already_generated_coins / height;
-
-	return m_currency.getMinimalFee(avgDifficultyCurrent, avgRewardCurrent, avgDifficultyHistorical, avgRewardHistorical, height);
 }
 
 uint64_t Blockchain::getCoinsInCirculation() {
@@ -787,9 +721,7 @@ uint64_t Blockchain::getCoinsInCirculation() {
 }
 
 uint8_t Blockchain::getBlockMajorVersionForHeight(uint32_t height) const {
-  if (height > m_upgradeDetectorV4.upgradeHeight()) {
-    return m_upgradeDetectorV4.targetVersion();
-  } else if (height > m_upgradeDetectorV3.upgradeHeight()) {
+  if (height > m_upgradeDetectorV3.upgradeHeight()) {
     return m_upgradeDetectorV3.targetVersion();
   } else if (height > m_upgradeDetectorV2.upgradeHeight()) {
     return m_upgradeDetectorV2.targetVersion();
@@ -821,25 +753,6 @@ bool Blockchain::rollback_blockchain_switching(std::list<Block> &original_chain,
   return true;
 }
 
-// Calculate ln(p) of Poisson distribution
-// https://github.com/ryo-currency/ryo-writeups/blob/master/poisson-writeup.md
-// Original idea : https://stackoverflow.com/questions/30156803/implementing-poisson-distribution-in-c
-// Using logarithms avoids dealing with very large (k!) and very small (p < 10^-44) numbers
-// lam     - lambda parameter - in our case, how many blocks, on average, you would expect to see in the interval
-// k       - k parameter - in our case, how many blocks we have actually seen
-//           !!! k must not be zero
-// return  - ln(p)
-
-static inline double calc_poisson_ln(double lam, uint64_t k)
-{
-  double logx = -lam + k * log(lam);
-  do
-  {
-    logx -= log(k); // This can be tabulated
-  } while (--k > 0);
-  return logx;
-}
-
 bool Blockchain::switch_to_alternative_blockchain(std::list<blocks_ext_by_hash::iterator>& alt_chain, bool discard_disconnected_chain) {
   std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
 
@@ -853,72 +766,6 @@ bool Blockchain::switch_to_alternative_blockchain(std::list<blocks_ext_by_hash::
   if (!(m_blocks.size() > split_height)) {
     logger(ERROR, BRIGHT_RED) << "switch_to_alternative_blockchain: blockchain size is lower than split height";
     return false;
-  }
-
-  // Poisson check, courtesy of ryo-project
-  // https://github.com/ryo-currency/ryo-writeups/blob/master/poisson-writeup.md
-  // For longer reorgs, check if the timestamps are probable - if they aren't the diff algo has failed
-  // This check is meant to detect an offline bypass of timestamp < time() + ftl check
-  // It doesn't need to be very strict as it synergises with the median check
-  if (alt_chain.size() >= CryptoNote::parameters::POISSON_CHECK_TRIGGER)
-  {
-	  uint64_t alt_chain_size = alt_chain.size();
-	  uint64_t high_timestamp = alt_chain.back()->second.bl.timestamp;
-	  Crypto::Hash low_block = alt_chain.front()->second.bl.previousBlockHash;
-
-	  //Make sure that the high_timestamp is really highest
-	  for (const blocks_ext_by_hash::iterator &it : alt_chain)
-	  {
-		  if (high_timestamp < it->second.bl.timestamp)
-			  high_timestamp = it->second.bl.timestamp;
-	  }
-
-	  uint64_t block_ftl = CryptoNote::parameters::CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V1;
-	  // This would fail later anyway
-	  if (high_timestamp > get_adjusted_time() + block_ftl)
-	  {
-		  logger(ERROR, BRIGHT_RED) << "Attempting to move to an alternate chain, but it failed FTL check! Timestamp: " << high_timestamp << ", limit: " << get_adjusted_time() + block_ftl;
-		  return false;
-	  }
-
-	  logger(INFO) << "Poisson check triggered by reorg size of " << alt_chain_size;
-
-	  uint64_t failed_checks = 0, i = 1;
-	  for (; i <= CryptoNote::parameters::POISSON_CHECK_DEPTH; i++)
-	  {
-		  // This means we reached the genesis block
-		  if (low_block == NULL_HASH)
-			  break;
-
-		  Block blk;
-		  getBlockByHash(low_block, blk);
-
-		  uint64_t low_timestamp = blk.timestamp;
-		  low_block = blk.previousBlockHash;
-
-		  if (low_timestamp >= high_timestamp)
-		  {
-			  logger(INFO) << "Skipping check at depth " << i << " due to tampered timestamp on main chain.";
-			  failed_checks++;
-			  continue;
-		  }
-
-		  double lam = double(high_timestamp - low_timestamp) / double(CryptoNote::parameters::DIFFICULTY_TARGET);
-		  if (calc_poisson_ln(lam, alt_chain_size + i) < CryptoNote::parameters::POISSON_LOG_P_REJECT)
-		  {
-			  logger(INFO) << "Poisson check at depth " << i << " failed! delta_t: " << (high_timestamp - low_timestamp) << " size: " << alt_chain_size + i;
-			  failed_checks++;
-		  }
-	  }
-
-	  i--; //Convert to number of checks
-	  logger(INFO) << "Poisson check result " << failed_checks << " fails out of " << i;
-
-	  if (failed_checks > i / 2)
-	  {
-		  logger(ERROR, BRIGHT_RED) << "Attempting to move to an alternate chain, but it failed Poisson check! " << failed_checks << " fails out of " << i << " alt_chain_size: " << alt_chain_size;
-		  return false;
-	  }
   }
 
   //disconnecting old chain
@@ -1134,12 +981,12 @@ uint64_t Blockchain::getCurrentCumulativeBlocksizeLimit() {
   return m_current_block_cumul_sz_limit;
 }
 
-bool Blockchain::complete_timestamps_vector(uint8_t blockMajorVersion, uint64_t start_top_height, std::vector<uint64_t>& timestamps) {
-  if (timestamps.size() >= m_currency.timestampCheckWindow(blockMajorVersion))
+bool Blockchain::complete_timestamps_vector(uint64_t start_top_height, std::vector<uint64_t>& timestamps) {
+  if (timestamps.size() >= m_currency.timestampCheckWindow())
     return true;
 
   std::lock_guard<decltype(m_blockchain_lock)> lk(m_blockchain_lock);
-  size_t need_elements = m_currency.timestampCheckWindow(blockMajorVersion) - timestamps.size();
+  size_t need_elements = m_currency.timestampCheckWindow() - timestamps.size();
   if (!(start_top_height < m_blocks.size())) { logger(ERROR, BRIGHT_RED) << "internal error: passed start_height = " << start_top_height << " not less then m_blocks.size()=" << m_blocks.size(); return false; }
   size_t stop_offset = start_top_height > need_elements ? start_top_height - need_elements : 0;
   do {
@@ -1158,7 +1005,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
   if (block_height == 0) {
     logger(ERROR, BRIGHT_RED) <<
       "Block with id: " << Common::podToHex(id) << " (as alternative) have wrong miner transaction";
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -1166,17 +1013,17 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
     logger(TRACE) << "Block with id: " << id << std::endl <<
       " can't be accepted for alternative chain, block height: " << block_height << std::endl <<
       " blockchain height: " << getCurrentBlockchainHeight();
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
   if (!checkBlockVersion(b, id)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
   if (!checkParentBlockSize(b, id)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -1186,7 +1033,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
   }
 
   if (!checkCumulativeBlockSize(id, cumulativeSize, block_height)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -1218,11 +1065,11 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
 	  Crypto::Hash h = NULL_HASH;
       get_block_hash(m_blocks[alt_chain.front()->second.height - 1].bl, h);
       if (!(h == alt_chain.front()->second.bl.previousBlockHash)) { logger(ERROR, BRIGHT_RED) << "alternative chain have wrong connection to main chain"; return false; }
-      complete_timestamps_vector(b.majorVersion, alt_chain.front()->second.height - 1, timestamps);
+      complete_timestamps_vector(alt_chain.front()->second.height - 1, timestamps);
     } else {
       // if block parent is not part of main chain or an alternate chain, we ignore it
       if (!(mainPrev)) { logger(ERROR, BRIGHT_RED) << "internal error: broken imperative condition it_main_prev != m_blocks_index.end()"; return false; }
-	  complete_timestamps_vector(b.majorVersion, mainPrevHeight, timestamps);
+      complete_timestamps_vector(mainPrevHeight, timestamps);
     }
 
     // check timestamp correct - verify that the block's timestamp is within the acceptable range
@@ -1232,7 +1079,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
         "Block with id: " << id
         << ENDL << " for alternative chain, have invalid timestamp: " << b.timestamp;
       //add_block_as_invalid(b, id);//do not add blocks to invalid storage before proof of work check was passed
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
 
@@ -1244,7 +1091,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
     if (!m_checkpoints.check_block(bei.height, id, is_a_checkpoint)) {
       logger(ERROR, BRIGHT_RED) <<
         "CHECKPOINT VALIDATION FAILED";
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
 
@@ -1259,14 +1106,14 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
         "Block with id: " << id
         << ENDL << " for alternative chain, have not enough proof of work: " << proof_of_work
         << ENDL << " expected difficulty: " << current_diff;
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
 
     if (!prevalidate_miner_transaction(b, bei.height)) {
       logger(INFO, BRIGHT_RED) <<
         "Block with id: " << Common::podToHex(id) << " (as alternative) have wrong miner transaction.";
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
 
@@ -1295,7 +1142,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
         bvc.m_added_to_main_chain = true;
         bvc.m_switched_to_alt_chain = true;
       } else {
-        bvc.m_verification_failed = true;
+        bvc.m_verifivation_failed = true;
       }
       return r;
     } else if (m_blocks.back().cumulative_difficulty < bei.cumulative_difficulty) //check if difficulty bigger then in main chain
@@ -1309,7 +1156,7 @@ bool Blockchain::handle_alternative_block(const Block& b, const Crypto::Hash& id
         bvc.m_added_to_main_chain = true;
         bvc.m_switched_to_alt_chain = true;
       } else {
-        bvc.m_verification_failed = true;
+        bvc.m_verifivation_failed = true;
       }
       return r;
     } else {
@@ -1365,6 +1212,7 @@ bool Blockchain::handleGetObjects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTI
   rsp.current_blockchain_height = getCurrentBlockchainHeight();
   std::list<Block> blocks;
   getBlocks(arg.blocks, blocks, rsp.missed_ids);
+
   for (const auto& bl : blocks) {
     std::list<Crypto::Hash> missed_tx_id;
     std::list<Transaction> txs;
@@ -1460,28 +1308,11 @@ bool Blockchain::getRandomOutsByAmount(const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_
     size_t up_index_limit = find_end_of_allowed_index(amount_outs);
     if (!(up_index_limit <= amount_outs.size())) { logger(ERROR, BRIGHT_RED) << "internal error: find_end_of_allowed_index returned wrong index=" << up_index_limit << ", with amount_outs.size = " << amount_outs.size(); return false; }
 
-	if(amount_outs.size() > req.outs_count)
-    {
-      std::set<size_t> used;
-      size_t try_count = 0;
-      for(uint64_t j = 0; j != req.outs_count && try_count < up_index_limit;)
-      {
-	    // triangular distribution over [a,b) with a=0, mode c=b=up_index_limit
-        uint64_t r = Crypto::rand<uint64_t>() % ((uint64_t)1 << 53);
-        double frac = std::sqrt((double)r / ((uint64_t)1 << 53));
-        size_t i = (size_t)(frac*up_index_limit);
-        if(used.count(i))
-          continue;
-        bool added = add_out_to_get_random_outs(amount_outs, result_outs, amount, i);
-        used.insert(i);
-        if(added)
-          ++j;
-        ++try_count;
+    if (up_index_limit > 0) {
+      ShuffleGenerator<size_t, Crypto::random_engine<size_t>> generator(up_index_limit);
+      for (uint64_t j = 0; j < up_index_limit && result_outs.outs.size() < req.outs_count; ++j) {
+        add_out_to_get_random_outs(amount_outs, result_outs, amount, generator());
       }
-    }else
-    {
-      for(size_t i = 0; i != up_index_limit; i++)
-        add_out_to_get_random_outs(amount_outs, result_outs, amount, i);
     }
   }
   return true;
@@ -1796,14 +1627,14 @@ uint64_t Blockchain::get_adjusted_time() {
 }
 
 bool Blockchain::check_block_timestamp_main(const Block& b) {
-  if (b.timestamp > get_adjusted_time() + m_currency.blockFutureTimeLimit(b.majorVersion)) {
+  if (b.timestamp > get_adjusted_time() + m_currency.blockFutureTimeLimit()) {
     logger(INFO, BRIGHT_WHITE) <<
       "Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp << ", bigger than adjusted time + 28 min.";
     return false;
   }
 
   std::vector<uint64_t> timestamps;
-  size_t offset = m_blocks.size() <= m_currency.timestampCheckWindow(b.majorVersion) ? 0 : m_blocks.size() - m_currency.timestampCheckWindow(b.majorVersion);
+  size_t offset = m_blocks.size() <= m_currency.timestampCheckWindow() ? 0 : m_blocks.size() - m_currency.timestampCheckWindow();
   for (; offset != m_blocks.size(); ++offset) {
     timestamps.push_back(m_blocks[offset].bl.timestamp);
   }
@@ -1820,7 +1651,7 @@ bool Blockchain::check_block_timestamp_main(const Block& b) {
 //       of the selected blocks
 //   false otherwise
 bool Blockchain::check_block_timestamp(std::vector<uint64_t> timestamps, const Block& b) {
-  if (timestamps.size() < m_currency.timestampCheckWindow(b.majorVersion)) {
+  if (timestamps.size() < m_currency.timestampCheckWindow()) {
     return true;
   }
 
@@ -1829,7 +1660,7 @@ bool Blockchain::check_block_timestamp(std::vector<uint64_t> timestamps, const B
   if (b.timestamp < median_ts) {
     logger(INFO, BRIGHT_WHITE) <<
       "Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp <<
-      ", less than median of last " << m_currency.timestampCheckWindow(b.majorVersion) << " blocks, " << median_ts;
+      ", less than median of last " << m_currency.timestampCheckWindow() << " blocks, " << median_ts;
     return false;
   }
 
@@ -1855,7 +1686,7 @@ bool Blockchain::checkBlockVersion(const Block& b, const Crypto::Hash& blockHash
 }
 
 bool Blockchain::checkParentBlockSize(const Block& b, const Crypto::Hash& blockHash) {
-  if (b.majorVersion == BLOCK_MAJOR_VERSION_2 || b.majorVersion == BLOCK_MAJOR_VERSION_3) {
+  if (b.majorVersion >= BLOCK_MAJOR_VERSION_2) {
     auto serializer = makeParentBlockSerializer(b, false, false);
     size_t parentBlockSize;
     if (!getObjectBinarySize(serializer, parentBlockSize)) {
@@ -1925,7 +1756,7 @@ bool Blockchain::addNewBlock(const Block& bl_, block_verification_context& bvc) 
   if (!get_block_hash(bl, id)) {
     logger(ERROR, BRIGHT_RED) <<
       "Failed to get block hash, possible block has invalid format";
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -1968,7 +1799,7 @@ const Blockchain::TransactionEntry& Blockchain::transactionByIndex(TransactionIn
 bool Blockchain::pushBlock(const Block& blockData, block_verification_context& bvc) {
   std::vector<Transaction> transactions;
   if (!loadTransactions(blockData, transactions)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -1990,24 +1821,24 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
   if (m_blockIndex.hasBlock(blockHash)) {
     logger(ERROR, BRIGHT_RED) <<
       "Block " << blockHash << " already exists in blockchain.";
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
   if (!checkBlockVersion(blockData, blockHash)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
   if (!checkParentBlockSize(blockData, blockHash)) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
   if (blockData.previousBlockHash != getTailId()) {
     logger(INFO, BRIGHT_WHITE) <<
       "Block " << blockHash << " has wrong previousBlockHash: " << blockData.previousBlockHash << ", expected: " << getTailId();
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -2016,7 +1847,7 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
   if (!check_block_timestamp_main(blockData)) {
     logger(INFO, BRIGHT_WHITE) <<
       "Block " << blockHash << " has invalid timestamp: " << blockData.timestamp;
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -2036,14 +1867,14 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
     if (!m_checkpoints.check_block(getCurrentBlockchainHeight(), blockHash)) {
       logger(ERROR, BRIGHT_RED) <<
         "CHECKPOINT VALIDATION FAILED";
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
   } else {
     if (!m_currency.checkProofOfWork(m_cn_context, blockData, currentDifficulty, proof_of_work)) {
       logger(INFO, BRIGHT_WHITE) <<
         "Block " << blockHash << ", has too weak proof of work: " << proof_of_work << ", expected difficulty: " << currentDifficulty;
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
       return false;
     }
   }
@@ -2053,7 +1884,7 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
   if (!prevalidate_miner_transaction(blockData, static_cast<uint32_t>(m_blocks.size()))) {
     logger(INFO, BRIGHT_WHITE) <<
       "Block " << blockHash << " failed to pass prevalidation";
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -2081,7 +1912,7 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
     if (!checkTransactionInputs(block.transactions.back().tx)) {
       logger(INFO, BRIGHT_WHITE) <<
         "Block " << blockHash << " has at least one transaction with wrong inputs: " << tx_id;
-      bvc.m_verification_failed = true;
+      bvc.m_verifivation_failed = true;
 
       block.transactions.pop_back();
       popTransactions(block, minerTransactionHash);
@@ -2096,7 +1927,7 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
   }
 
   if (!checkCumulativeBlockSize(blockHash, cumulative_block_size, m_blocks.size())) {
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     return false;
   }
 
@@ -2105,7 +1936,7 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
   uint64_t already_generated_coins = m_blocks.empty() ? 0 : m_blocks.back().already_generated_coins;
   if (!validate_miner_transaction(blockData, static_cast<uint32_t>(m_blocks.size()), cumulative_block_size, already_generated_coins, fee_summary, reward, emissionChange)) {
     logger(INFO, BRIGHT_WHITE) << "Block " << blockHash << " has invalid miner transaction";
-    bvc.m_verification_failed = true;
+    bvc.m_verifivation_failed = true;
     popTransactions(block, minerTransactionHash);
     return false;
   }
@@ -2134,7 +1965,6 @@ bool Blockchain::pushBlock(const Block& blockData, const std::vector<Transaction
 
   m_upgradeDetectorV2.blockPushed();
   m_upgradeDetectorV3.blockPushed();
-  m_upgradeDetectorV4.blockPushed();
   update_next_comulative_size_limit();
 
   return true;
@@ -2171,7 +2001,6 @@ void Blockchain::popBlock() {
 
   m_upgradeDetectorV2.blockPopped();
   m_upgradeDetectorV3.blockPopped();
-  m_upgradeDetectorV4.blockPopped();
 }
 
 bool Blockchain::pushTransaction(BlockEntry& block, const Crypto::Hash& transactionHash, TransactionIndex transactionIndex) {
@@ -2554,7 +2383,7 @@ bool Blockchain::storeBlockchainIndices() {
   logger(INFO, BRIGHT_WHITE) << "Saving blockchain indices...";
   BlockchainIndicesSerializer ser(*this, getTailId(), logger.getLogger());
 
-  if (!storeToBinaryFile(ser, appendPath(m_config_folder, m_currency.blockchainIndicesFileName()))) {
+  if (!storeToBinaryFile(ser, appendPath(m_config_folder, m_currency.blockchinIndicesFileName()))) {
     logger(ERROR, BRIGHT_RED) << "Failed to save blockchain indices";
     return false;
   }
@@ -2568,7 +2397,7 @@ bool Blockchain::loadBlockchainIndices() {
   logger(INFO, BRIGHT_WHITE) << "Loading blockchain indices for BlockchainExplorer...";
   BlockchainIndicesSerializer loader(*this, get_block_hash(m_blocks.back().bl), logger.getLogger());
 
-  loadFromBinaryFile(loader, appendPath(m_config_folder, m_currency.blockchainIndicesFileName()));
+  loadFromBinaryFile(loader, appendPath(m_config_folder, m_currency.blockchinIndicesFileName()));
 
   if (!loader.loaded()) {
     logger(WARNING, BRIGHT_YELLOW) << "No actual blockchain indices for BlockchainExplorer found, rebuilding...";

@@ -1,5 +1,4 @@
 // Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
-// Copyright (c) 2018, Karbo developers
 //
 // This file is part of Bytecoin.
 //
@@ -45,7 +44,6 @@ struct SendTransactionContext
   std::list<TransactionOutputInformation> selectedTransfers;
   TxDustPolicy dustPolicy;
   uint64_t mixIn;
-  Crypto::SecretKey tx_key = NULL_SECRET_KEY;
 };
 
 } //namespace CryptoNote
