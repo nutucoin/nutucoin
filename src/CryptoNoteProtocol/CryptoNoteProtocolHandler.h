@@ -109,6 +109,9 @@ namespace CryptoNote
     mutable std::mutex m_observedHeightMutex;
     uint32_t m_observedHeight;
 
+    mutable std::mutex m_blockchainHeightMutex;
+    uint32_t m_blockchainHeight;
+
     std::atomic<size_t> m_peersCount;
     Tools::ObserverManager<ICryptoNoteProtocolObserver> m_observerManager;
   };
