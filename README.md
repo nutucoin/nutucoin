@@ -1,5 +1,7 @@
 Nutucoin
 
+(NUTUCOIN V2 COMING SOON)
+
 ## Building Nutu
 
 ### On *nix
